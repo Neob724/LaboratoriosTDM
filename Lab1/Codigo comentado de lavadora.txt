@@ -1,0 +1,423 @@
+.equ F_CPU = 16000000           ; Frecuencia del reloj del ATmega328P (16 MHz)
+.equ BAUD = 9600                ; Baud rate (9600 bps)
+.equ UBRR_9600 = F_CPU / 16 / BAUD - 1  ; Valor de UBRR para 9600 baudios
+.def tipo_carga = r25           ; Registro que define el tipo de carga de la lavadora
+	
+.org 0x0000
+rjmp inicio
+.org 0x0024			;Dirección de la interrupcion por recepcion USART
+rjmp USART_RX		
+
+inicio:
+	ldi r16, low(UBRR_9600)	;Cargar el valor en UBRR para 9600 baudios
+	sts UBRR0L, r16
+	ldi r16, high(UBRR_9600)	
+	sts UBRR0H, r16
+
+	ldi r16, (1<<RXEN0)|(1<<TXEN0)|(1<<RXCIE0) ;Abilitar recepcion, transmision y interrupion por recepcion
+	sts UCSR0B, r16
+
+	ldi r16, (1<<UCSZ01)|(1<<UCSZ00) ;8 bits de datos y 1 bit de parada
+	sts UCSR0C, r16
+
+	ldi r16, (1 << CS02) | (1 << CS00)  ;Prescaler del timer counter 0 a 1024
+	out TCCR0B, r16
+
+	;Puerto D y C como salidas, el B se encargara de las entradas de los pulsadores
+	ldi r16, 0xff
+	out DDRD, r16
+
+	ldi r16, 0xff
+	out DDRC, r16
+
+	ldi tipo_carga,1	;Cargar 0b00000001 en el registro que guardara el tipo de carga
+
+	SEI
+
+;Esperando inicio
+estado_1:
+	;Se envia por el puerto serial la cadena 'Estado ' seguido de el numero del estado y un \r
+	rcall mensaje_estado
+	ldi r24, '1'
+	rcall tx
+	ldi r24, '\r'
+	rcall tx
+	
+	;Mostrar en los leds el estado actual
+	ldi r16,0b00000100
+	out PORTD,r16
+	clr r16
+	
+	;Loop para leer todo el rato si se puslso el cambiador de cargas, si es asi suma 1 a tipo_carga
+	loop_estado1:
+	
+	out PORTC, tipo_carga
+	
+	;Si cambiar carga esta en 1, ir a counter, que lo que hara es inc a tipo_carga
+	in r21, PINB
+	andi r21, 0b00000100
+	cpi r21, 0b00000100
+	breq  counter
+
+	cpi r19,12	;Si se envio un enter y se seteo el r19 a 12, entonces inicia el lavado
+	breq estado_2
+	
+	;Si se quiere iniciar el lavado por hardware se presionan los dos pulsadores correspondientes
+	clr r16
+	in r16, PINB
+	andi r16, 0b00000011
+	cpi r16,0b00000011
+	brne loop_estado1
+	rjmp estado_2
+	
+	;Interrupcion por recepcion
+	USART_RX:
+		lds r16, UDR0                  ; Cargar el dato recibido
+		cpi r16, 'a'                    ;Verificar si es el caracter 'a'
+		brne USART_RX_End              ; Si no es enter, no hace nada
+		ldi r19, 12                    ; Si es enter, asigna valor 12 a r19
+	USART_RX_End:
+		reti  
+	
+	;Mueve el bit hacia la derecha, aparte intenta filtrar ruido del pulsador con el debouncing
+	counter:
+	lsl tipo_carga
+		press:
+			rcall debouncing	
+			in r21, PINB
+			andi r21, 0b00000100
+			cpi r21, 0b00000100
+			breq press
+	cpi tipo_carga, 0b00001000
+	brne loop_estado1
+	ldi tipo_carga,1
+	rjmp loop_estado1
+
+estado_2:
+	LDI R19,0
+
+	rcall mensaje_estado
+	ldi r24, '2'
+	rcall tx
+	ldi r24, '\r'
+	rcall tx
+
+	ldi r16,0b00001000
+	out PORTD,r16
+	clr r16
+
+	cpi tipo_carga,1
+	breq lavado_liviano
+
+	cpi tipo_carga,2
+	breq lavado_medio
+
+	cpi tipo_carga,4
+	breq lavado_completo
+
+	rjmp estado_3
+
+	lavado_liviano:;Patron de lavado en base a la consigna
+	ldi r18, 5
+	lavadosL5:
+	rcall vel_baja_1s
+	rcall vel_baja_1s
+	rcall delay1s
+	dec r18
+	brne lavadosL5
+	rjmp estado_3
+
+	lavado_medio:	;Patron de lavado en base a la consigna
+	ldi r18, 5
+	lavadosM5:
+	rcall vel_baja_1s
+	rcall vel_baja_1s
+	rcall vel_baja_1s
+	rcall delay1s
+	rcall delay1s
+	dec r18
+	brne lavadosM5
+	rjmp estado_3
+
+	lavado_completo:;Patron de lavado en base a la consigna
+	ldi r18, 5
+	lavadosC5:
+	rcall vel_baja_1s
+	rcall vel_baja_1s
+	rcall vel_baja_1s
+	rcall vel_baja_1s
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+	dec r18
+	brne lavadosC5
+	rjmp estado_3
+
+estado_3:
+	rcall mensaje_estado
+	ldi r24, '3'
+	rcall tx
+	ldi r24, '\r'
+	rcall tx
+
+	ldi r16,0b00010000
+	out PORTD,r16
+
+	cpi tipo_carga,1
+	breq centri_liviano
+
+	cpi tipo_carga,2
+	breq centri_medio
+
+	cpi tipo_carga,4
+	breq centri_completo
+
+	rjmp estado_4
+
+	centri_liviano:	;Patron de centrifugado en base a la consigna
+
+	ldi r18, 0b00001000
+	out PORTC, r18
+	ldi r18, 15
+	centri15s:
+	rcall delay1s
+	dec r18
+	brne centri15s
+
+	rjmp estado_4
+
+	centri_medio:	;Patron de centrifugado en base a la consigna
+
+	ldi r18, 0b00001000
+	out PORTC, r18
+	ldi r18, 18
+	centri18s:
+	rcall delay1s
+	dec r18
+	brne centri18s
+
+	rjmp estado_4
+
+	centri_completo:	;Patron de centrifugado en base a la consigna
+
+	ldi r18, 0b00001000
+	out PORTC, r18
+	ldi r18, 21
+	centri21s:
+	rcall delay1s
+	dec r18
+	brne centri21s
+
+	rjmp estado_4
+
+;Secado dependiendo de la carga
+estado_4:
+	rcall mensaje_estado
+	ldi r24, '4'
+	rcall tx
+	ldi r24, '\r'
+	rcall tx
+
+	ldi r16,0b00100000
+	out PORTD,r16
+
+	;Estructura parecida a un switch case, para cada tipo de carga un tipo de secado diferente
+	cpi tipo_carga,1
+	breq secado_liviano
+
+	cpi tipo_carga,2
+	breq secado_medio
+
+	cpi tipo_carga,4
+	breq secado_completo
+
+	rjmp estado_5
+
+	secado_liviano:	;Patron de secado liviano en base a la consigna
+
+	ldi r18, 0b00001000
+	out PORTC, r18
+	ldi r18, 5
+	giroizq1:
+	rcall delay1s
+	dec r18
+	brne giroizq1
+
+	ldi r18, 0b00000000
+	out PORTC, r18
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+
+	ldi r18, 0b00010000
+	out PORTC, r18
+	ldi r18, 5
+	giroder1:
+	rcall delay1s
+	dec r18
+	brne giroder1
+
+	rjmp estado_5
+
+	secado_medio:	;Patron de secado medio en base a la consigna
+
+	ldi r18, 0b00001000
+	out PORTC, r18
+	ldi r18, 7
+	giroizq2:
+	rcall delay1s
+	dec r18
+	brne giroizq2
+
+	ldi r18, 0b00000000
+	out PORTC, r18
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+
+	ldi r18, 0b00010000
+	out PORTC, r18
+	ldi r18, 7
+	giroder2:
+	rcall delay1s
+	dec r18
+	brne giroder2
+
+	rjmp estado_5
+
+	secado_completo:	;Patron de secado completo en base a la consigna
+
+	ldi r18, 0b00001000
+	out PORTC, r18
+	ldi r18, 9
+	giroizq3:
+	rcall delay1s
+	dec r18
+	brne giroizq3
+
+	ldi r18, 0b00000000
+	out PORTC, r18
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+	rcall delay1s
+
+	ldi r18, 0b00010000
+	out PORTC, r18
+	ldi r18, 9
+	giroder3:
+	rcall delay1s
+	dec r18
+	brne giroder3
+
+	rjmp estado_5
+
+;Fin del proceso, esperando a que el sensor de llenado marque 1
+estado_5:
+	clr r16
+	out PORTC, r16
+
+	rcall mensaje_estado
+	ldi r24, '5'
+	rcall tx
+	ldi r24, '\r'
+	rcall tx
+
+	ldi r16,0b01000000
+	out PORTD,r16
+
+	loop_estado5:
+	in r21, PINB
+	andi r21, 0b00001000
+	cpi r21, 0b00001000
+	brne loop_estado5
+
+	rjmp estado_1
+	
+;1 segundo de delay usando el timer counter 0 y loops
+delay1s:
+	ldi r17,61
+L1:
+	ldi r16, 0
+	out TCNT0, r16
+L2:
+	in r16, TCNT0
+	cpi r16, 255
+	brne L2
+	dec r17 
+	brne L1
+	ret
+
+;Unos cuantos ms para evitar ruido del pulsador a la hora de pulsarlo
+debouncing:
+	ldi r17,10
+L3:
+	ldi r16, 0
+	out TCNT0, r16
+L4:
+	in r16, TCNT0
+	cpi r16, 255
+	brne L4
+	dec r17 
+	brne L3
+	ret
+
+;Mandar una onda cuadrada al motor por 1 seugndo para que la velocidad sea reducida
+vel_baja_1s:
+	ldi r30,61
+E1:
+	ldi r16, 0
+	out TCNT0, r16
+
+	in r16,PINC
+	andi r16, 0b00001000
+	ldi r17,0b00001000
+	eor r16, r17
+	clr r17
+	out PORTC,r16
+E2:
+	in r16, TCNT0
+	cpi r16, 255
+	brne E2
+	dec r30
+	brne E1
+	ret
+	
+;Para enviar 'Estado ' mediante usart
+mensaje_estado:
+	ldi r24, 'E'
+	rcall tx
+
+	ldi r24, 's'
+	rcall tx
+
+	ldi r24, 't'
+	rcall tx
+
+	ldi r24, 'a'
+	rcall tx
+
+	ldi r24, 'd'
+	rcall tx
+
+	ldi r24, 'o'
+	rcall tx
+
+	ldi r24, ' '
+	rcall tx
+
+	ret
+	
+;Para transmitir un caracter
+tx:
+    lds r16, UCSR0A
+    andi r16, (1<<UDRE0)
+    breq tx
+    sts UDR0, r24
+	clr r16
+    ret
