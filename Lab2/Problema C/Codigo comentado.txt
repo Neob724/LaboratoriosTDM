@@ -1,0 +1,94 @@
+#define F_CPU 16000000UL
+#define BAUD 9600
+#define MYUBRR ((F_CPU / (16UL * BAUD)) - 1)
+
+#include <avr/io.h>
+#include <util/delay.h>
+
+void config() {
+	TCCR1A |= (1 << WGM11) | (1 << COM1A1) | (1 << COM1B1);
+	TCCR1B |= (1 << WGM13) | (1 << WGM12);
+	ICR1 = 1024;
+    TCCR1B |= (1 << CS11) | (1 << CS10); 
+	DDRB |= (1 << PB1) | (1 << PB2);
+
+	ADMUX |= (1 << REFS0);
+	ADCSRA |= (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1);
+
+	UBRR0H = (unsigned char)(MYUBRR >> 8);
+	UBRR0L = (unsigned char)MYUBRR;
+	UCSR0B = (1 << TXEN0);
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+}
+
+int16_t leer_adc(uint8_t canal) {
+	ADMUX = (ADMUX & 0xF0) | (canal & 0x0F);
+	ADCSRA |= (1 << ADSC);
+	while (ADCSRA & (1 << ADSC));
+	return ADC;
+}
+
+void control_pwm(int16_t adc_motor, int16_t adc_referencia) {
+	int16_t error = adc_referencia - adc_motor;
+	
+	if (error > 0) {
+		OCR1A = error;  // Si hay error positivo, ajusta OCR1A (PWM hacia adelante)
+		OCR1B = 0;
+	} else if (error < 0) {
+		OCR1B = -error;  // Si el error es negativo, ajusta OCR1B (PWM hacia atrás)
+		OCR1A = 0;
+	} else {
+		OCR1A = 0;  // Si no hay error, ambos PWM son 0 (motor detenido)
+		OCR1B = 0;
+	}
+	
+	// Limita el valor del PWM a un máximo de 1024
+	if (OCR1A > 1024) OCR1A = 1024;
+	if (OCR1B > 1024) OCR1B = 1024;
+}
+
+void tx(unsigned char data) {
+	while (!(UCSR0A & (1 << UDRE0)));
+	UDR0 = data;
+}
+
+void print(const char* str) {
+	while (*str) {
+		tx(*str++);
+	}
+}
+
+void printInt(unsigned int value) {
+	if (value > 9) {
+		printInt(value / 10);
+	}
+	tx(value % 10 + '0');
+}
+
+int main() {
+	config();
+	int16_t adc_motor = leer_adc(1);
+	int16_t adc_referencia = leer_adc(0);
+	int16_t PWM1;
+	int16_t PWM2;
+	while (1) {
+		adc_motor = leer_adc(1);
+		adc_referencia = leer_adc(0);
+		PWM1 = OCR1A;
+		PWM2 = OCR1B;
+		_delay_ms(50);
+		
+		print("\n\r");
+		printInt(adc_motor);
+		print(",");
+		printInt(adc_referencia);
+		print(",");
+		printInt(PWM1);
+		print(",");
+		printInt(PWM2);
+		
+		control_pwm(adc_motor, adc_referencia);
+		
+		_delay_ms(50);
+	}
+}

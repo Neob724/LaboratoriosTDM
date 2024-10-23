@@ -1,0 +1,123 @@
+#define F_CPU 16000000UL
+#define BAUD 9600
+#define MYUBRR ((F_CPU / (16UL * BAUD)) - 1)
+#define pwmRojo 245  // Valor PWM para el color rojo
+#define pwmAmarillo 365  // Valor PWM para el color amarillo
+#define pwmVerde 485  // Valor PWM para el color verde
+#define valorRojo 728  // Valor ADC esperado para el color rojo
+#define valorAmarillo 810  // Valor ADC esperado para el color amarillo
+#define valorVerde 687  // Valor ADC esperado para el color verde
+#define margenError 12  // Margen de error permitido al comparar los valores ADC
+#include <avr/io.h>
+#include <util/delay.h>
+uint8_t diferencia = 0;  // Variable para almacenar la diferencia entre el valor medido y el preset
+
+uint16_t adc_read(uint8_t canal) {
+	ADMUX=(ADMUX & 0xF0) | (canal & 0x0F);  // Selecciona el canal ADC
+	ADCSRA |= (1 << ADSC);  // Inicia la conversión ADC
+	while (ADCSRA & (1 << ADSC));  // Espera que termine la conversión
+	return ADC;  // Retorna el valor del ADC, o sea, el resultado de la conversión
+}
+
+void tx(unsigned char data) {
+	while (!(UCSR0A & (1 << UDRE0)));  // Espera que el buffer UART esté listo
+	UDR0 = data;  // Aquí metemos el dato que vamos a mandar
+}
+
+void print(const char* str) {
+	while (*str) {  // Recorre todo el string
+		tx(*str++);  // Usa la función que transmite el dato
+	}
+}
+
+void printInt(unsigned int value) {
+	if (value > 9) {  // Si el valor tiene más de un dígito, seguimos imprimiendo
+		printInt(value / 10);  // Hacemos recursión para imprimir los dígitos más grandes
+	}
+	tx(value % 10 + '0');  // Convertimos a carácter, sumando '0' para que sea en ASCII
+}
+
+uint32_t mapeoldr(uint32_t ldr) {
+	return (uint32_t)((ldr * 255) / 1024);  // Mapeo en base a valores máximos y mínimos del LDR
+}
+
+void config(void){
+		ADMUX = (1 << REFS0);  // Configura el ADC para usar el AVCC como referencia
+		ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1);  // Habilita el ADC y define el prescaler
+		UBRR0H = (unsigned char)(MYUBRR >> 8);  // Ajusta el baudrate alto para el UART
+		UBRR0L = (unsigned char)MYUBRR;  // Parte baja del baudrate
+		UCSR0B = (1 << TXEN0);  // Habilita el transmisor UART
+		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);  // Configura el UART a 8 bits
+		
+		DDRB |= 0b00000010;  // Configura PB1 como salida para PWM
+		TCCR1A |= (1 << WGM11) | (1 << COM1A1) | (1 << COM1B1);  // Configura modo Fast PWM para Timer1
+		TCCR1B |= (1 << WGM13) | (1 << WGM12);  // Configura el Timer1 en modo Fast PWM con ICR1 como TOP
+		ICR1 = 4999;  // Fijamos el valor de ICR1 para determinar la frecuencia PWM
+		OCR1A = 0;  // Inicializa el valor del PWM en 0
+		TCCR1B |= (1 << CS11) | (1 << CS10);  // Configura el prescaler a 64 para el Timer1
+}
+
+int decorder(int valorADC) {
+	if (valorADC >= (valorRojo - margenError) && valorADC <= (valorRojo + margenError)) {
+		diferencia = valorADC - valorRojo;  // Calcula la diferencia con el valor de referencia para el rojo
+		return pwmRojo;  // Retorna el valor PWM para el color rojo
+	} 
+	else if (valorADC >= (valorAmarillo - margenError) && valorADC <= (valorAmarillo + margenError)) {
+		diferencia = valorADC - valorAmarillo;  // Calcula la diferencia con el valor de referencia para el amarillo
+		return pwmAmarillo;  // Retorna el valor PWM para el color amarillo
+	}
+	else if (valorADC >= (valorVerde - margenError) && valorADC <= (valorVerde + margenError)) {
+		diferencia = valorADC - valorVerde;  // Calcula la diferencia con el valor de referencia para el verde
+		return pwmVerde;  // Retorna el valor PWM para el color verde
+	}
+	else {
+		diferencia = 0;  // No hay diferencia si no se detecta color
+		return 0;  // No se detecta ningún color
+	}
+}
+
+int main(void) {
+	config();  // Llama la configuración inicial del sistema
+	
+	while (1) {
+		OCR1A = decorder(adc_read(0));  // Actualiza el PWM en función del valor ADC
+		_delay_ms(1000);  // Retardo de 1 segundo
+		
+		print("\n");
+		print("Valor LDR:");
+		printInt(adc_read(0));  // Muestra el valor leído por el LDR
+		print("\n");
+		
+		print("Color detectado:");
+		if (decorder(adc_read(0)) == pwmRojo) {
+			print("rojo");  // Detecta si el color es rojo
+		}
+		else if (decorder(adc_read(0)) == pwmAmarillo) {
+			print("amarillo");  // Detecta si el color es amarillo
+		}
+		else if (decorder(adc_read(0)) == pwmVerde) {
+			print("verde");  // Detecta si el color es verde
+		} else {
+			print("no detectado");  // Si no se detecta color
+		}
+		print("\n");
+		
+		print("Valor preset:");
+		if (decorder(adc_read(0)) == pwmRojo) {
+			printInt(valorRojo);  // Muestra el valor preset para rojo
+		}
+		else if (decorder(adc_read(0)) == pwmAmarillo) {
+			printInt(valorAmarillo);  // Muestra el valor preset para amarillo
+		}
+		else if (decorder(adc_read(0)) == pwmVerde) {
+			printInt(valorVerde);  // Muestra el valor preset para verde
+		} else {
+			print("no detectado");  // Si no hay color detectado
+		}
+		print("\n");
+		
+		print("Diferencia:");
+		printInt(diferencia);  // Muestra la diferencia calculada
+		print("\n");
+	}
+}
