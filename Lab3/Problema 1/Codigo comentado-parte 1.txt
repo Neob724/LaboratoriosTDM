@@ -1,0 +1,72 @@
+#define F_CPU 16000000UL
+#include <avr/io.h>
+#include <util/delay.h>
+
+#define CLK_X  PB3
+#define DIR_X  PB4
+#define EN_X   PB5
+#define SOLENOID PC0
+#define CLK_Y  PC3
+#define DIR_Y  PC4
+#define EN_Y   PB4
+#define LED    PD5
+
+int main(void) {
+	// Configurar el LED como salida
+	DDRD |= (1 << LED);
+
+	// Configurar los pines X (CLK_X, DIR_X, EN_X) como salida
+	DDRB |= (1 << CLK_X) | (1 << DIR_X) | (1 << EN_X);
+
+	// Configurar los pines Y (CLK_Y, DIR_Y, EN_Y) como salida
+	DDRC |= (1 << CLK_Y) | (1 << DIR_Y) | (1 << SOLENOID); // Solenoide
+
+	// Inicializar los pines
+	PORTB &= ~(1 << EN_X);  // Desactivar motor X inicialmente
+	PORTB &= ~(1 << DIR_X);  // Dirección de X hacia '0'
+	PORTC &= ~(1 << EN_Y);   // Desactivar motor Y inicialmente
+	PORTC &= ~(1 << DIR_Y);  // Dirección de Y hacia '0'
+	PORTC |= (1 << SOLENOID); // Inicialmente, solenoide apagado
+
+	// Habilitar el solenoide
+	PORTC &= ~(1 << SOLENOID); // Poner solenoide en estado '0' (activado)
+
+	// Primer for: Habilitar motor X, dirección X en '1' (derecha)
+	for (int i = 0; i < 500; i++) {
+		PORTB |= (1 << EN_X);    // Habilitar motor X
+		PORTB |= (1 << DIR_X);   // Dirección de X en '1' (derecha)
+		PORTB ^= (1 << CLK_X);   // Parpadear CLK_X
+		_delay_ms(1);            // Esperar 1 ms
+	}
+
+	// Segundo for: Habilitar motor Y, dirección Y en '1' (arriba)
+	for (int i = 0; i < 500; i++) {
+		PORTC |= (1 << EN_Y);    // Habilitar motor Y
+		PORTC |= (1 << DIR_Y);   // Dirección de Y en '1' (arriba)
+		PORTC ^= (1 << CLK_Y);   // Parpadear CLK_Y
+		_delay_ms(1);            // Esperar 1 ms
+	}
+
+	// Tercer for: Habilitar motor X, dirección X en '0' (izquierda)
+	for (int i = 0; i < 500; i++) {
+		PORTB |= (1 << EN_X);    // Habilitar motor X
+		PORTB &= ~(1 << DIR_X);  // Dirección de X en '0' (izquierda)
+		PORTB ^= (1 << CLK_X);   // Parpadear CLK_X
+		_delay_ms(1);            // Esperar 1 ms
+	}
+
+	// Cuarto for: Habilitar motor Y, dirección Y en '0' (abajo)
+	for (int i = 0; i < 500; i++) {
+		PORTC |= (1 << EN_Y);    // Habilitar motor Y
+		PORTC &= ~(1 << DIR_Y);  // Dirección de Y en '0' (abajo)
+		PORTC ^= (1 << CLK_Y);   // Parpadear CLK_Y
+		_delay_ms(1);            // Esperar 1 ms
+	}
+
+	// Desactivar el solenoide después de completar el cuadrado
+	PORTC |= (1 << SOLENOID); // Desactivar solenoide (poner en '1')
+
+	while (1) {
+		// El bucle principal está vacío, ya que la acción ya ocurrió en los for
+	}
+}

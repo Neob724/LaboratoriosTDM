@@ -1,0 +1,34 @@
+
+1. Limpieza de Pantalla
+   - 0x01 - Borra toda la pantalla y coloca el cursor en la posición inicial (fila 1, columna 1).
+
+2. Retorno de Cursor a Casa
+   - 0x02 - Retorna el cursor a la posición inicial, pero no borra la pantalla.
+
+3. Modo de Entrada
+   - 0x04 - Incrementa o decrementa la posición del cursor.
+   - 0x06 - Incrementa el cursor y desplaza a la derecha (modo típico).
+   - 0x05 o 0x07 - Configura el movimiento del cursor o pantalla al introducir caracteres.
+
+4. Control de la Pantalla
+   - 0x08 - Apaga la pantalla, el cursor y el parpadeo.
+   - 0x0C - Enciende la pantalla sin mostrar el cursor ni el parpadeo.
+   - 0x0E - Enciende la pantalla y muestra el cursor fijo.
+   - 0x0F - Enciende la pantalla, el cursor y el parpadeo.
+
+5. Desplazamiento de Cursor y Pantalla
+   - 0x10 - Desplaza el cursor a la izquierda.
+   - 0x14 - Desplaza el cursor a la derecha.
+   - 0x18 - Desplaza toda la pantalla a la izquierda.
+   - 0x1C - Desplaza toda la pantalla a la derecha.
+
+6. Función de Configuración
+   - 0x20 - Configura el LCD en modo de 4 bits, 1 línea, y matriz de 5x8 puntos.
+   - 0x28 - Configura el LCD en modo de 4 bits, 2 líneas, y matriz de 5x8 puntos.
+   - 0x30 - Configura el LCD en modo de 8 bits, 1 línea, y matriz de 5x8 puntos.
+   - 0x38 - Configura el LCD en modo de 8 bits, 2 líneas, y matriz de 5x8 puntos (configuración más común).
+
+7. Dirección del Cursor (DDRAM)
+   - 0x80 + posición - Coloca el cursor en una posición específica de la pantalla.
+     - Fila 1: 0x80 + columna (0 a 15)
+     - Fila 2: 0xC0 + columna (0 a 15)
