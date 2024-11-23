@@ -1,0 +1,125 @@
+#define F_CPU 16000000UL
+#include <avr/io.h>
+
+#define M1A OCR2B
+#define M1B OCR0B
+#define M2A OCR0A
+#define M2B OCR1A
+
+#define BAUD 9600
+#define MY_UBRR ((F_CPU / (16UL * BAUD)) - 1)
+
+//inicializa la uart
+void uart(void) {
+    UBRR0H = (unsigned char)(MY_UBRR >> 8);
+    UBRR0L = (unsigned char)MY_UBRR;
+    UCSR0B = (1 << RXEN0); //habilita el receptor uart
+    UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); //establece 8 bits de datos
+}
+
+//configura los pwm para los motores
+void pwm(){
+    TCCR1A |= (1 << WGM11) | (1 << COM1A1);
+    TCCR1B |= (1 << WGM13) | (1 << WGM12);
+    TCCR1B |= (1 << CS11) | (1 << CS10); //prescaler de 64
+
+    TCCR2A |= (1 << WGM21) | (1 << WGM20);
+    TCCR2A |= (1 << COM2B1);
+    TCCR2B |= (1 << CS21) | (1 << CS20); //prescaler de 64
+
+    ICR1 = 255; //valor máximo para el timer 1
+
+    TCCR0A |= (1 << WGM01) | (1 << WGM00);
+    TCCR0A |= (1 << COM0A1) | (1 << COM0B1);
+    TCCR0B |= (1 << CS01) | (1 << CS00); //prescaler de 64
+
+    M1A = 0;
+    M1B = 0;
+    M2A = 0;
+    M2B = 0;
+}
+
+//recibe un byte desde la uart
+unsigned char rx(void) {
+    while (!(UCSR0A & (1 << RXC0))); //espera hasta recibir un dato
+    return UDR0; //devuelve el dato recibido
+}
+
+int main(void) {
+    DDRB |= 2; //configura el pin PB1 como salida
+    DDRD |= 0b01101000; //configura los pines PD3, PD5, PD6 como salidas
+
+    pwm(); //inicializa los pwm
+    uart(); //inicializa la uart
+    
+    while (1) {
+        unsigned char comando = rx(); //recibe un comando desde la uart
+
+        //ejecuta acciones basadas en el comando recibido
+        switch (comando) {
+            case 'B':
+                //avanza
+                M1A = 200;
+                M1B = 0;
+                M2A = 200;
+                M2B = 0;
+                break;
+            case 'F':
+                //retrocede
+                M1A = 0;
+                M1B = 200;
+                M2A = 0;
+                M2B = 200;
+                break;
+            case 'L':
+                //gira a la izquierda
+                M1A = 200;
+                M1B = 0;
+                M2A = 0;
+                M2B = 200;
+                break;
+            case 'R':
+                //gira a la derecha
+                M1A = 0;
+                M1B = 200;
+                M2A = 200;
+                M2B = 0;
+                break;
+            case 'G':
+                //avanza hacia la izquierda
+                M1A = 200;
+                M1B = 0;
+                M2A = 255;
+                M2B = 0;
+                break;
+            case 'I':
+                //avanza hacia la derecha
+                M1A = 255;
+                M1B = 0;
+                M2A = 200;
+                M2B = 0;
+                break;
+            case 'H':
+                //retrocede hacia la izquierda
+                M1A = 0;
+                M1B = 200;
+                M2A = 0;
+                M2B = 255;
+                break;
+            case 'J':
+                //retrocede hacia la derecha
+                M1A = 0;
+                M1B = 255;
+                M2A = 0;
+                M2B = 200;
+                break;
+            default:
+                //para los motores
+                M1A = 0;
+                M1B = 0;
+                M2A = 0;
+                M2B = 0;
+                break;
+        }
+    }
+}
